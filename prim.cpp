@@ -30,6 +30,7 @@ unsigned int VAO;
 unsigned int VBO;
 
 float angle = 0.0f;
+std::vector<glm::vec3> vertices;
 
 /** Vertex shader. */
 const char *vertex_code =
@@ -94,48 +95,54 @@ void initShaders(void);
  * Draws primitive.
  */
 void display() {
-  glClearColor(0.2, 0.3, 0.3, 1.0);
-  glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glClearColor(0.2, 0.3, 0.3, 1.0);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-  glUseProgram(program);
-  glBindVertexArray(VAO);
+    glUseProgram(program);
+    glBindVertexArray(VAO);
 
-  glm::mat4 Rx = glm::rotate(glm::mat4(1.0f), glm::radians(10.0f),
-                             glm::vec3(1.0f, 0.0f, 0.0f));
-  glm::mat4 Ry = glm::rotate(glm::mat4(1.0f), glm::radians(angle),
-                             glm::vec3(0.0f, 1.0f, 0.0f));
+    unsigned int loc;
 
-  angle += 1.0f;
+    glm::mat4 view =
+        glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -2.0f, -15.0f));
+    view = glm::rotate(view, glm::radians(30.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+    loc = glGetUniformLocation(program, "view");
+    glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(view));
 
-  glm::mat4 model = Rx * Ry;
-  unsigned int loc = glGetUniformLocation(program, "model");
-  glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(model));
+    glm::mat4 projection = glm::perspective(
+        glm::radians(45.0f), (win_width / (float)win_height), 0.1f, 100.0f);
+    loc = glGetUniformLocation(program, "projection");
+    glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(projection));
 
-  glm::mat4 view =
-      glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, -5.0f));
-  loc = glGetUniformLocation(program, "view");
-  glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(view));
+    // Object color.
+    loc = glGetUniformLocation(program, "objectColor");
+    glUniform3f(loc, 0.5, 0.1, 0.1);
 
-  glm::mat4 projection = glm::perspective(
-      glm::radians(45.0f), (win_width / (float)win_height), 0.1f, 100.0f);
-  loc = glGetUniformLocation(program, "projection");
-  glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(projection));
+    // Light color.
+    loc = glGetUniformLocation(program, "lightColor");
+    glUniform3f(loc, 1.0, 1.0, 1.0);
 
-  // Object color.
-  loc = glGetUniformLocation(program, "objectColor");
-  glUniform3f(loc, 0.5, 0.1, 0.1);
+    // Light position.
+    loc = glGetUniformLocation(program, "lightPosition");
+    glUniform3f(loc, 1.0, -3.0, 2.0);
 
-  // Light color.
-  loc = glGetUniformLocation(program, "lightColor");
-  glUniform3f(loc, 1.0, 1.0, 1.0);
+    for (glm::vec3 pos : vertices) {
+        glm::mat4 Rx = glm::rotate(glm::mat4(1.0f), glm::radians(10.0f),
+                                   glm::vec3(1.0f, 0.0f, 0.0f));
+        glm::mat4 Ry = glm::rotate(glm::mat4(1.0f), glm::radians(angle),
+                                   glm::vec3(0.0f, 1.0f, 0.0f));
+        glm::mat4 T = glm::translate(glm::mat4(1.0f), pos);
 
-  // Light position.
-  loc = glGetUniformLocation(program, "lightPosition");
-  glUniform3f(loc, 1.0, -3.0, 2.0);
+        glm::mat4 model = T * Rx * Ry;
+        unsigned int loc = glGetUniformLocation(program, "model");
+        glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(model));
 
-  glDrawArrays(GL_TRIANGLES, 0, 36);
+        glDrawArrays(GL_TRIANGLES, 0, 36);
+    }
 
-  glutSwapBuffers();
+    angle += 5.0f;
+
+    glutSwapBuffers();
 }
 
 /**
@@ -147,10 +154,10 @@ void display() {
  * @param height New window height.
  */
 void reshape(int width, int height) {
-  win_width = width;
-  win_height = height;
-  glViewport(0, 0, width, height);
-  glutPostRedisplay();
+    win_width = width;
+    win_height = height;
+    glViewport(0, 0, width, height);
+    glutPostRedisplay();
 }
 
 /**
@@ -163,15 +170,15 @@ void reshape(int width, int height) {
  * @param y Mouse y coordinate when key pressed.
  */
 void keyboard(unsigned char key, int x, int y) {
-  switch (key) {
-  case 27:
-    glutLeaveMainLoop();
-  case 'q':
-  case 'Q':
-    glutLeaveMainLoop();
-  }
+    switch (key) {
+    case 27:
+        glutLeaveMainLoop();
+    case 'q':
+    case 'Q':
+        glutLeaveMainLoop();
+    }
 
-  glutPostRedisplay();
+    glutPostRedisplay();
 }
 
 /**
@@ -180,52 +187,53 @@ void keyboard(unsigned char key, int x, int y) {
  * Defines the coordinates for vertices, creates the arrays for OpenGL.
  */
 void initData() {
-  // Set cube vertices.
-  float vertices[] = {
-      // coordinate      // normal
-      -0.5f, -0.5f, 0.5f,  0.0f,  0.0f,  1.0f,  0.5f,  -0.5f, 0.5f,  0.0f,
-      0.0f,  1.0f,  0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  -0.5f, -0.5f,
-      0.5f,  0.0f,  0.0f,  1.0f,  0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,
-      -0.5f, 0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  0.5f,  -0.5f, 0.5f,  1.0f,
-      0.0f,  0.0f,  0.5f,  -0.5f, -0.5f, 1.0f,  0.0f,  0.0f,  0.5f,  0.5f,
-      -0.5f, 1.0f,  0.0f,  0.0f,  0.5f,  -0.5f, 0.5f,  1.0f,  0.0f,  0.0f,
-      0.5f,  0.5f,  -0.5f, 1.0f,  0.0f,  0.0f,  0.5f,  0.5f,  0.5f,  1.0f,
-      0.0f,  0.0f,  0.5f,  -0.5f, -0.5f, 0.0f,  0.0f,  -1.0f, -0.5f, -0.5f,
-      -0.5f, 0.0f,  0.0f,  -1.0f, -0.5f, 0.5f,  -0.5f, 0.0f,  0.0f,  -1.0f,
-      0.5f,  -0.5f, -0.5f, 0.0f,  0.0f,  -1.0f, -0.5f, 0.5f,  -0.5f, 0.0f,
-      0.0f,  -1.0f, 0.5f,  0.5f,  -0.5f, 0.0f,  0.0f,  -1.0f, -0.5f, -0.5f,
-      -0.5f, -1.0f, 0.0f,  0.0f,  -0.5f, -0.5f, 0.5f,  -1.0f, 0.0f,  0.0f,
-      -0.5f, 0.5f,  0.5f,  -1.0f, 0.0f,  0.0f,  -0.5f, -0.5f, -0.5f, -1.0f,
-      0.0f,  0.0f,  -0.5f, 0.5f,  0.5f,  -1.0f, 0.0f,  0.0f,  -0.5f, 0.5f,
-      -0.5f, -1.0f, 0.0f,  0.0f,  -0.5f, 0.5f,  0.5f,  0.0f,  1.0f,  0.0f,
-      0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  0.5f,  0.5f,  -0.5f, 0.0f,
-      1.0f,  0.0f,  -0.5f, 0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  0.5f,  0.5f,
-      -0.5f, 0.0f,  1.0f,  0.0f,  -0.5f, 0.5f,  -0.5f, 0.0f,  1.0f,  0.0f,
-      -0.5f, -0.5f, 0.5f,  0.0f,  -1.0f, 0.0f,  -0.5f, -0.5f, -0.5f, 0.0f,
-      -1.0f, 0.0f,  0.5f,  -0.5f, 0.5f,  0.0f,  -1.0f, 0.0f,  -0.5f, -0.5f,
-      -0.5f, 0.0f,  -1.0f, 0.0f,  0.5f,  -0.5f, -0.5f, 0.0f,  -1.0f, 0.0f,
-      0.5f,  -0.5f, 0.5f,  0.0f,  -1.0f, 0.0f};
+    // Set cube vertices.
+    float vertices[] = {
+        // coordinate      // normal
+        -0.5f, -0.5f, 0.5f,  0.0f,  0.0f,  1.0f,  0.5f,  -0.5f, 0.5f,  0.0f,
+        0.0f,  1.0f,  0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  -0.5f, -0.5f,
+        0.5f,  0.0f,  0.0f,  1.0f,  0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,
+        -0.5f, 0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  0.5f,  -0.5f, 0.5f,  1.0f,
+        0.0f,  0.0f,  0.5f,  -0.5f, -0.5f, 1.0f,  0.0f,  0.0f,  0.5f,  0.5f,
+        -0.5f, 1.0f,  0.0f,  0.0f,  0.5f,  -0.5f, 0.5f,  1.0f,  0.0f,  0.0f,
+        0.5f,  0.5f,  -0.5f, 1.0f,  0.0f,  0.0f,  0.5f,  0.5f,  0.5f,  1.0f,
+        0.0f,  0.0f,  0.5f,  -0.5f, -0.5f, 0.0f,  0.0f,  -1.0f, -0.5f, -0.5f,
+        -0.5f, 0.0f,  0.0f,  -1.0f, -0.5f, 0.5f,  -0.5f, 0.0f,  0.0f,  -1.0f,
+        0.5f,  -0.5f, -0.5f, 0.0f,  0.0f,  -1.0f, -0.5f, 0.5f,  -0.5f, 0.0f,
+        0.0f,  -1.0f, 0.5f,  0.5f,  -0.5f, 0.0f,  0.0f,  -1.0f, -0.5f, -0.5f,
+        -0.5f, -1.0f, 0.0f,  0.0f,  -0.5f, -0.5f, 0.5f,  -1.0f, 0.0f,  0.0f,
+        -0.5f, 0.5f,  0.5f,  -1.0f, 0.0f,  0.0f,  -0.5f, -0.5f, -0.5f, -1.0f,
+        0.0f,  0.0f,  -0.5f, 0.5f,  0.5f,  -1.0f, 0.0f,  0.0f,  -0.5f, 0.5f,
+        -0.5f, -1.0f, 0.0f,  0.0f,  -0.5f, 0.5f,  0.5f,  0.0f,  1.0f,  0.0f,
+        0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  0.5f,  0.5f,  -0.5f, 0.0f,
+        1.0f,  0.0f,  -0.5f, 0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  0.5f,  0.5f,
+        -0.5f, 0.0f,  1.0f,  0.0f,  -0.5f, 0.5f,  -0.5f, 0.0f,  1.0f,  0.0f,
+        -0.5f, -0.5f, 0.5f,  0.0f,  -1.0f, 0.0f,  -0.5f, -0.5f, -0.5f, 0.0f,
+        -1.0f, 0.0f,  0.5f,  -0.5f, 0.5f,  0.0f,  -1.0f, 0.0f,  -0.5f, -0.5f,
+        -0.5f, 0.0f,  -1.0f, 0.0f,  0.5f,  -0.5f, -0.5f, 0.0f,  -1.0f, 0.0f,
+        0.5f,  -0.5f, 0.5f,  0.0f,  -1.0f, 0.0f};
 
-  // Vertex array.
-  glGenVertexArrays(1, &VAO);
-  glBindVertexArray(VAO);
+    // Vertex array.
+    glGenVertexArrays(1, &VAO);
+    glBindVertexArray(VAO);
 
-  // Vertex buffer
-  glGenBuffers(1, &VBO);
-  glBindBuffer(GL_ARRAY_BUFFER, VBO);
-  glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+    // Vertex buffer
+    glGenBuffers(1, &VBO);
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
 
-  // Set attributes.
-  glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void *)0);
-  glEnableVertexAttribArray(0);
-  glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float),
-                        (void *)(3 * sizeof(float)));
-  glEnableVertexAttribArray(1);
+    // Set attributes.
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float),
+                          (void *)0);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float),
+                          (void *)(3 * sizeof(float)));
+    glEnableVertexAttribArray(1);
 
-  // Unbind Vertex Array Object.
-  glBindVertexArray(0);
+    // Unbind Vertex Array Object.
+    glBindVertexArray(0);
 
-  glEnable(GL_DEPTH_TEST);
+    glEnable(GL_DEPTH_TEST);
 }
 
 /** Create program (shaders).
@@ -233,28 +241,39 @@ void initData() {
  * Compile shaders and create the program.
  */
 void initShaders() {
-  // Request a program and shader slots from GPU
-  program = createShaderProgram(vertex_code, fragment_code);
+    // Request a program and shader slots from GPU
+    program = createShaderProgram(vertex_code, fragment_code);
+}
+
+void initGraph() {
+    vertices = std::vector<glm::vec3>();
+    for (int i = 0; i < 25; i++) {
+        vertices.push_back(
+            glm::vec3((float)i * 2.0f - 5.0f, 0.0f, -2.0f * (float)(i % 5)));
+    }
 }
 
 int main(int argc, char **argv) {
-  glutInit(&argc, argv);
-  glutInitContextVersion(3, 3);
-  glutInitContextProfile(GLUT_CORE_PROFILE);
-  glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA | GLUT_DEPTH);
-  glutInitWindowSize(win_width, win_height);
-  glutCreateWindow(argv[0]);
-  glewInit();
+    glutInit(&argc, argv);
+    glutInitContextVersion(3, 3);
+    glutInitContextProfile(GLUT_CORE_PROFILE);
+    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA | GLUT_DEPTH);
+    glutInitWindowSize(win_width, win_height);
+    glutCreateWindow(argv[0]);
+    glewInit();
 
-  // Init vertex data for the triangle.
-  initData();
+    // Init vertices in the graph
+    initGraph();
 
-  // Create shaders.
-  initShaders();
+    // Init vertex data for the triangle.
+    initData();
 
-  glutReshapeFunc(reshape);
-  glutDisplayFunc(display);
-  glutKeyboardFunc(keyboard);
+    // Create shaders.
+    initShaders();
 
-  glutMainLoop();
+    glutReshapeFunc(reshape);
+    glutDisplayFunc(display);
+    glutKeyboardFunc(keyboard);
+
+    glutMainLoop();
 }
