@@ -1,0 +1,50 @@
+[
+    {
+        "arguments": [
+            "g++",
+            "prim.cpp",
+            "utils.cpp",
+            "-o",
+            "prim",
+            "-lfreeglut",
+            "-lglew32",
+            "-lopengl32",
+            "-I",
+            "./libs/glew-2.2.0/include/",
+            "-I",
+            "./libs/freeglut/include/",
+            "-I",
+            "./libs/glm/",
+            "-L",
+            "./libs/glew-2.2.0/bin/Release/x64/",
+            "-L",
+            "./libs/freeglut/bin/x64/"
+        ],
+        "directory": "D:/repos/UNIFEI/CIC270/trab",
+        "file": "prim.cpp"
+    },
+    {
+        "arguments": [
+            "g++",
+            "prim.cpp",
+            "utils.cpp",
+            "-o",
+            "prim",
+            "-lfreeglut",
+            "-lglew32",
+            "-lopengl32",
+            "-I",
+            "./libs/glew-2.2.0/include/",
+            "-I",
+            "./libs/freeglut/include/",
+            "-I",
+            "./libs/glm/",
+            "-L",
+            "./libs/glew-2.2.0/bin/Release/x64/",
+            "-L",
+            "./libs/freeglut/bin/x64/"
+        ],
+        "directory": "D:/repos/UNIFEI/CIC270/trab",
+        "file": "prim.cpp"
+    }
+]
