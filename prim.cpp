@@ -5,6 +5,9 @@
  * @author Ricardo Dutra da Silva
  */
 
+#include "glm/ext/matrix_transform.hpp"
+#include "glm/ext/vector_float3.hpp"
+#include "glm/geometric.hpp"
 #include "utils.h"
 #include <GL/freeglut.h>
 #include <GL/glew.h>
@@ -29,58 +32,67 @@ unsigned int VAO;
 /** Vertex buffer object. */
 unsigned int VBO;
 
-float angle = 0.0f;
-std::vector<glm::vec3> vertices;
+struct Node {
+    glm::vec3 position;
+
+    int connected_to;
+    bool in_tree;
+    float cost;
+};
+
+std::vector<Node> nodes;
+std::vector<int> not_included;
+int last_added = -1;
+
+glm::vec3 camera_pos = glm::vec3(0.0f, 15.0f, 10.0f);
 
 /** Vertex shader. */
-const char *vertex_code =
-    "\n"
-    "#version 330 core\n"
-    "layout (location = 0) in vec3 position;\n"
-    "layout (location = 1) in vec3 normal;\n"
-    "\n"
-    "uniform mat4 model;\n"
-    "uniform mat4 view;\n"
-    "uniform mat4 projection;\n"
-    "\n"
-    "out vec3 vNormal;\n"
-    "out vec3 fragPosition;\n"
-    "\n"
-    "void main()\n"
-    "{\n"
-    "    gl_Position = projection * view * model * vec4(position, 1.0);\n"
-    "    vNormal = mat3(transpose(inverse(model)))*normal;\n"
-    "    fragPosition = vec3(model * vec4(position, 1.0));\n"
-    "}\0";
+const char *vertex_code = "\n"
+                          "#version 330 core\n"
+                          "layout (location = 0) in vec3 position;\n"
+                          "layout (location = 1) in vec3 normal;\n"
+                          "\n"
+                          "uniform mat4 model;\n"
+                          "uniform mat4 view;\n"
+                          "uniform mat4 projection;\n"
+                          "\n"
+                          "out vec3 vNormal;\n"
+                          "out vec3 fragPosition;\n"
+                          "\n"
+                          "void main()\n"
+                          "{\n"
+                          "    gl_Position = projection * view * model * vec4(position, 1.0);\n"
+                          "    vNormal = mat3(transpose(inverse(model)))*normal;\n"
+                          "    fragPosition = vec3(model * vec4(position, 1.0));\n"
+                          "}\0";
 
 /*"    vNormal = mat3(transpose(inverse(model)))*normal;\n"*/
 
 /** Fragment shader. */
-const char *fragment_code =
-    "\n"
-    "#version 330 core\n"
-    "\n"
-    "in vec3 vNormal;\n"
-    "in vec3 fragPosition;\n"
-    "\n"
-    "out vec4 fragColor;\n"
-    "\n"
-    "uniform vec3 objectColor;\n"
-    "uniform vec3 lightColor;\n"
-    "uniform vec3 lightPosition;\n"
-    "\n"
-    "void main()\n"
-    "{\n"
-    "    float kd = 0.8;\n"
-    "    vec3 n = normalize(vNormal);\n"
-    "    vec3 l = normalize(lightPosition - fragPosition);\n"
-    "\n"
-    "    float diff = max(dot(n,l), 0.0);\n"
-    "    vec3 diffuse = kd * diff * lightColor;\n"
-    "\n"
-    "    vec3 light = diffuse * objectColor;\n"
-    "    fragColor = vec4(light, 1.0);\n"
-    "}\0";
+const char *fragment_code = "\n"
+                            "#version 330 core\n"
+                            "\n"
+                            "in vec3 vNormal;\n"
+                            "in vec3 fragPosition;\n"
+                            "\n"
+                            "out vec4 fragColor;\n"
+                            "\n"
+                            "uniform vec3 objectColor;\n"
+                            "uniform vec3 lightColor;\n"
+                            "uniform vec3 lightDirection;\n"
+                            "\n"
+                            "void main()\n"
+                            "{\n"
+                            "    float kd = 0.8;\n"
+                            "    vec3 n = normalize(vNormal);\n"
+                            "    vec3 l = normalize(lightDirection);\n"
+                            "\n"
+                            "    float diff = 0.6 * max(dot(n,-l) + 1.0, 0.0);\n"
+                            "    vec3 diffuse = kd * diff * lightColor;\n"
+                            "\n"
+                            "    vec3 light = diffuse * objectColor;\n"
+                            "    fragColor = vec4(light, 1.0);\n"
+                            "}\0";
 
 /* Functions. */
 void display(void);
@@ -88,6 +100,7 @@ void reshape(int, int);
 void keyboard(unsigned char, int, int);
 void initData(void);
 void initShaders(void);
+void runPrimStep();
 
 /**
  * Drawing function.
@@ -95,7 +108,7 @@ void initShaders(void);
  * Draws primitive.
  */
 void display() {
-    glClearColor(0.2, 0.3, 0.3, 1.0);
+    glClearColor(0.3, 0.6, 0.8, 1.0);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     glUseProgram(program);
@@ -104,43 +117,76 @@ void display() {
     unsigned int loc;
 
     glm::mat4 view =
-        glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -2.0f, -15.0f));
-    view = glm::rotate(view, glm::radians(30.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+        glm::lookAt(camera_pos, glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+
     loc = glGetUniformLocation(program, "view");
     glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(view));
 
-    glm::mat4 projection = glm::perspective(
-        glm::radians(45.0f), (win_width / (float)win_height), 0.1f, 100.0f);
+    glm::mat4 projection =
+        glm::perspective(glm::radians(45.0f), (win_width / (float)win_height), 0.1f, 100.0f);
     loc = glGetUniformLocation(program, "projection");
     glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(projection));
-
-    // Object color.
-    loc = glGetUniformLocation(program, "objectColor");
-    glUniform3f(loc, 0.5, 0.1, 0.1);
 
     // Light color.
     loc = glGetUniformLocation(program, "lightColor");
     glUniform3f(loc, 1.0, 1.0, 1.0);
 
     // Light position.
-    loc = glGetUniformLocation(program, "lightPosition");
-    glUniform3f(loc, 1.0, -3.0, 2.0);
+    loc = glGetUniformLocation(program, "lightDirection");
+    glUniform3f(loc, -1.0, -3.0, -2.0);
 
-    for (glm::vec3 pos : vertices) {
-        glm::mat4 Rx = glm::rotate(glm::mat4(1.0f), glm::radians(10.0f),
-                                   glm::vec3(1.0f, 0.0f, 0.0f));
-        glm::mat4 Ry = glm::rotate(glm::mat4(1.0f), glm::radians(angle),
-                                   glm::vec3(0.0f, 1.0f, 0.0f));
-        glm::mat4 T = glm::translate(glm::mat4(1.0f), pos);
+    // draw edges
+    for (int i = 0; i < nodes.size(); i++) {
+        auto node = nodes[i];
+        if (!node.in_tree || node.connected_to == -1)
+            continue;
 
-        glm::mat4 model = T * Rx * Ry;
+        // Object color.
+        loc = glGetUniformLocation(program, "objectColor");
+        if (i == last_added) {
+            glUniform3f(loc, 0.0, 1.0, 0.0);
+        } else {
+            glUniform3f(loc, 1.0, 1.0, 1.0);
+        }
+
+        auto start = node.position;
+        auto end = nodes[node.connected_to].position;
+
+        float dist = glm::distance(start, end);
+
+        glm::vec3 da = glm::normalize(glm::vec3(0.0f, 0.0f, 1.0f));
+        glm::vec3 db = glm::normalize(end - start);
+
+        auto dir = end - start;
+        float angle = atan2(dir.x, dir.z);
+
+        auto model = glm::mat4(1.0f);
+        model = glm::translate(model, (start + end) / 2.0f);
+        model = glm::rotate(model, angle, glm::vec3(0.0f, 1.0f, 0.0f));
+        model = glm::scale(model, glm::vec3(0.15f, 0.15f, dist));
+        /* model = glm::scale(model, glm::vec3(0.25f, 0.25f, 0.5f)); */
+
         unsigned int loc = glGetUniformLocation(program, "model");
         glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(model));
 
         glDrawArrays(GL_TRIANGLES, 0, 36);
     }
 
-    angle += 5.0f;
+    // Object color.
+    loc = glGetUniformLocation(program, "objectColor");
+    glUniform3f(loc, 1.0, 0.1, 0.1);
+
+    // draw nodes
+    for (auto node : nodes) {
+        auto model = glm::mat4(1.0f);
+        model = glm::translate(model, node.position);
+        model = glm::scale(model, glm::vec3(0.5));
+
+        unsigned int loc = glGetUniformLocation(program, "model");
+        glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(model));
+
+        glDrawArrays(GL_TRIANGLES, 0, 36);
+    }
 
     glutSwapBuffers();
 }
@@ -170,15 +216,32 @@ void reshape(int width, int height) {
  * @param y Mouse y coordinate when key pressed.
  */
 void keyboard(unsigned char key, int x, int y) {
+    glutPostRedisplay();
+
     switch (key) {
     case 27:
+        break;
         glutLeaveMainLoop();
     case 'q':
     case 'Q':
         glutLeaveMainLoop();
+        break;
+    case 'w':
+        camera_pos.y += 0.5f;
+        break;
+    case 's':
+        camera_pos.y -= 0.5f;
+        break;
+    case 'a':
+        camera_pos.x -= 0.5f;
+        break;
+    case 'd':
+        camera_pos.x += 0.5f;
+        break;
+    case 'n':
+        runPrimStep();
+        break;
     }
-
-    glutPostRedisplay();
 }
 
 /**
@@ -190,28 +253,23 @@ void initData() {
     // Set cube vertices.
     float vertices[] = {
         // coordinate      // normal
-        -0.5f, -0.5f, 0.5f,  0.0f,  0.0f,  1.0f,  0.5f,  -0.5f, 0.5f,  0.0f,
-        0.0f,  1.0f,  0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  -0.5f, -0.5f,
-        0.5f,  0.0f,  0.0f,  1.0f,  0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,
-        -0.5f, 0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  0.5f,  -0.5f, 0.5f,  1.0f,
-        0.0f,  0.0f,  0.5f,  -0.5f, -0.5f, 1.0f,  0.0f,  0.0f,  0.5f,  0.5f,
-        -0.5f, 1.0f,  0.0f,  0.0f,  0.5f,  -0.5f, 0.5f,  1.0f,  0.0f,  0.0f,
-        0.5f,  0.5f,  -0.5f, 1.0f,  0.0f,  0.0f,  0.5f,  0.5f,  0.5f,  1.0f,
-        0.0f,  0.0f,  0.5f,  -0.5f, -0.5f, 0.0f,  0.0f,  -1.0f, -0.5f, -0.5f,
-        -0.5f, 0.0f,  0.0f,  -1.0f, -0.5f, 0.5f,  -0.5f, 0.0f,  0.0f,  -1.0f,
-        0.5f,  -0.5f, -0.5f, 0.0f,  0.0f,  -1.0f, -0.5f, 0.5f,  -0.5f, 0.0f,
-        0.0f,  -1.0f, 0.5f,  0.5f,  -0.5f, 0.0f,  0.0f,  -1.0f, -0.5f, -0.5f,
-        -0.5f, -1.0f, 0.0f,  0.0f,  -0.5f, -0.5f, 0.5f,  -1.0f, 0.0f,  0.0f,
-        -0.5f, 0.5f,  0.5f,  -1.0f, 0.0f,  0.0f,  -0.5f, -0.5f, -0.5f, -1.0f,
-        0.0f,  0.0f,  -0.5f, 0.5f,  0.5f,  -1.0f, 0.0f,  0.0f,  -0.5f, 0.5f,
-        -0.5f, -1.0f, 0.0f,  0.0f,  -0.5f, 0.5f,  0.5f,  0.0f,  1.0f,  0.0f,
-        0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  0.5f,  0.5f,  -0.5f, 0.0f,
-        1.0f,  0.0f,  -0.5f, 0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  0.5f,  0.5f,
-        -0.5f, 0.0f,  1.0f,  0.0f,  -0.5f, 0.5f,  -0.5f, 0.0f,  1.0f,  0.0f,
-        -0.5f, -0.5f, 0.5f,  0.0f,  -1.0f, 0.0f,  -0.5f, -0.5f, -0.5f, 0.0f,
-        -1.0f, 0.0f,  0.5f,  -0.5f, 0.5f,  0.0f,  -1.0f, 0.0f,  -0.5f, -0.5f,
-        -0.5f, 0.0f,  -1.0f, 0.0f,  0.5f,  -0.5f, -0.5f, 0.0f,  -1.0f, 0.0f,
-        0.5f,  -0.5f, 0.5f,  0.0f,  -1.0f, 0.0f};
+        -0.5f, -0.5f, 0.5f,  0.0f,  0.0f,  1.0f,  0.5f,  -0.5f, 0.5f,  0.0f,  0.0f,  1.0f,  0.5f,
+        0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  -0.5f, -0.5f, 0.5f,  0.0f,  0.0f,  1.0f,  0.5f,  0.5f,
+        0.5f,  0.0f,  0.0f,  1.0f,  -0.5f, 0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  0.5f,  -0.5f, 0.5f,
+        1.0f,  0.0f,  0.0f,  0.5f,  -0.5f, -0.5f, 1.0f,  0.0f,  0.0f,  0.5f,  0.5f,  -0.5f, 1.0f,
+        0.0f,  0.0f,  0.5f,  -0.5f, 0.5f,  1.0f,  0.0f,  0.0f,  0.5f,  0.5f,  -0.5f, 1.0f,  0.0f,
+        0.0f,  0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f,  0.5f,  -0.5f, -0.5f, 0.0f,  0.0f,  -1.0f,
+        -0.5f, -0.5f, -0.5f, 0.0f,  0.0f,  -1.0f, -0.5f, 0.5f,  -0.5f, 0.0f,  0.0f,  -1.0f, 0.5f,
+        -0.5f, -0.5f, 0.0f,  0.0f,  -1.0f, -0.5f, 0.5f,  -0.5f, 0.0f,  0.0f,  -1.0f, 0.5f,  0.5f,
+        -0.5f, 0.0f,  0.0f,  -1.0f, -0.5f, -0.5f, -0.5f, -1.0f, 0.0f,  0.0f,  -0.5f, -0.5f, 0.5f,
+        -1.0f, 0.0f,  0.0f,  -0.5f, 0.5f,  0.5f,  -1.0f, 0.0f,  0.0f,  -0.5f, -0.5f, -0.5f, -1.0f,
+        0.0f,  0.0f,  -0.5f, 0.5f,  0.5f,  -1.0f, 0.0f,  0.0f,  -0.5f, 0.5f,  -0.5f, -1.0f, 0.0f,
+        0.0f,  -0.5f, 0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,
+        0.5f,  0.5f,  -0.5f, 0.0f,  1.0f,  0.0f,  -0.5f, 0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  0.5f,
+        0.5f,  -0.5f, 0.0f,  1.0f,  0.0f,  -0.5f, 0.5f,  -0.5f, 0.0f,  1.0f,  0.0f,  -0.5f, -0.5f,
+        0.5f,  0.0f,  -1.0f, 0.0f,  -0.5f, -0.5f, -0.5f, 0.0f,  -1.0f, 0.0f,  0.5f,  -0.5f, 0.5f,
+        0.0f,  -1.0f, 0.0f,  -0.5f, -0.5f, -0.5f, 0.0f,  -1.0f, 0.0f,  0.5f,  -0.5f, -0.5f, 0.0f,
+        -1.0f, 0.0f,  0.5f,  -0.5f, 0.5f,  0.0f,  -1.0f, 0.0f};
 
     // Vertex array.
     glGenVertexArrays(1, &VAO);
@@ -223,11 +281,9 @@ void initData() {
     glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
 
     // Set attributes.
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float),
-                          (void *)0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void *)0);
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float),
-                          (void *)(3 * sizeof(float)));
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void *)(3 * sizeof(float)));
     glEnableVertexAttribArray(1);
 
     // Unbind Vertex Array Object.
@@ -246,10 +302,51 @@ void initShaders() {
 }
 
 void initGraph() {
-    vertices = std::vector<glm::vec3>();
+    nodes = std::vector<Node>();
     for (int i = 0; i < 25; i++) {
-        vertices.push_back(
-            glm::vec3((float)i * 2.0f - 5.0f, 0.0f, -2.0f * (float)(i % 5)));
+        int x = i / 5;
+        int y = i % 5;
+        float dx = 0.5 * ((float)rand() / (float)(RAND_MAX)-1.0);
+        float dy = 0.5 * ((float)rand() / (float)(RAND_MAX)-1.0);
+        /* float dx = 0.0; */
+        /* float dy = 0.0; */
+
+        auto position = glm::vec3((float)x * 2.0f - 4.0f + dx, 0.0f, -4.0f + 2.0f * (float)y + dy);
+        nodes.push_back(
+            Node{.position = position, .connected_to = -1, .in_tree = false, .cost = 1.0f / 0.0f});
+    }
+    for (int v = 0; v < nodes.size(); v++) {
+        not_included.push_back(v);
+    }
+}
+
+/// https://en.wikipedia.org/wiki/Prim%27s_algorithm#Description
+void runPrimStep() {
+
+    if (!not_included.empty()) {
+        float min_cost = 1.0f / 0.0f;
+        int min = -1;
+        for (int i = 0; i < not_included.size(); i++) {
+            int v = not_included[i];
+            if (min == -1 || nodes[v].cost < min_cost) {
+                min_cost = nodes[v].cost;
+                min = i;
+            }
+        }
+        int v = not_included[min];
+        not_included.erase(not_included.begin() + min);
+        nodes[v].in_tree = true;
+        last_added = v;
+
+        for (int w : not_included) {
+            float new_cost = glm::distance(nodes[v].position, nodes[w].position);
+            if (new_cost < nodes[w].cost) {
+                nodes[w].connected_to = v;
+                nodes[w].cost = new_cost;
+            }
+        }
+    } else {
+        last_added = -1;
     }
 }
 
@@ -262,8 +359,9 @@ int main(int argc, char **argv) {
     glutCreateWindow(argv[0]);
     glewInit();
 
-    // Init vertices in the graph
+    // Init the nodes of the graph
     initGraph();
+    runPrimStep();
 
     // Init vertex data for the triangle.
     initData();
