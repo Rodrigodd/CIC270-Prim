@@ -15,9 +15,13 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/string_cast.hpp>
+#include <memory>
 #include <stdio.h>
 #include <stdlib.h>
 #include <vector>
+
+#define TINYOBJLOADER_IMPLEMENTATION
+#include "tiny_obj_loader.h"
 
 /* Globals */
 /** Window width. */
@@ -27,10 +31,16 @@ int win_height = 600;
 
 /** Program variable. */
 int program;
+
 /** Vertex array object. */
-unsigned int VAO;
+unsigned int VAO_CASA;
 /** Vertex buffer object. */
-unsigned int VBO;
+unsigned int VBO_CASA;
+
+/** Vertex array object. */
+unsigned int VAO_CUBO;
+/** Vertex buffer object. */
+unsigned int VBO_CUBO;
 
 struct Node {
     glm::vec3 position;
@@ -101,6 +111,7 @@ void keyboard(unsigned char, int, int);
 void initData(void);
 void initShaders(void);
 void runPrimStep();
+void initGraph();
 
 /**
  * Drawing function.
@@ -112,7 +123,6 @@ void display() {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     glUseProgram(program);
-    glBindVertexArray(VAO);
 
     unsigned int loc;
 
@@ -136,6 +146,7 @@ void display() {
     glUniform3f(loc, -1.0, -3.0, -2.0);
 
     // draw edges
+    glBindVertexArray(VAO_CUBO);
     for (int i = 0; i < nodes.size(); i++) {
         auto node = nodes[i];
         if (!node.in_tree || node.connected_to == -1)
@@ -144,9 +155,9 @@ void display() {
         // Object color.
         loc = glGetUniformLocation(program, "objectColor");
         if (i == last_added) {
-            glUniform3f(loc, 0.0, 1.0, 0.0);
+            glUniform3f(loc, 0.1, 0.1, 0.85);
         } else {
-            glUniform3f(loc, 1.0, 1.0, 1.0);
+            glUniform3f(loc, 0.85, 0.7, 0.5);
         }
 
         auto start = node.position;
@@ -154,30 +165,49 @@ void display() {
 
         float dist = glm::distance(start, end);
 
-        glm::vec3 da = glm::normalize(glm::vec3(0.0f, 0.0f, 1.0f));
-        glm::vec3 db = glm::normalize(end - start);
-
         auto dir = end - start;
         float angle = atan2(dir.x, dir.z);
 
         auto model = glm::mat4(1.0f);
         model = glm::translate(model, (start + end) / 2.0f);
         model = glm::rotate(model, angle, glm::vec3(0.0f, 1.0f, 0.0f));
-        model = glm::scale(model, glm::vec3(0.15f, 0.15f, dist));
-        /* model = glm::scale(model, glm::vec3(0.25f, 0.25f, 0.5f)); */
+        model = glm::scale(model, glm::vec3(0.3f, 0.05f, dist));
 
-        unsigned int loc = glGetUniformLocation(program, "model");
+        loc = glGetUniformLocation(program, "model");
         glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(model));
 
         glDrawArrays(GL_TRIANGLES, 0, 36);
     }
 
-    // Object color.
-    loc = glGetUniformLocation(program, "objectColor");
-    glUniform3f(loc, 1.0, 0.1, 0.1);
+    // draw ground
+    {
+        loc = glGetUniformLocation(program, "objectColor");
+        glUniform3f(loc, 0.3, 0.8, 0.0);
+
+        auto model = glm::mat4(1.0f);
+        model = glm::translate(model, glm::vec3(0.0, -0.5, 0.0));
+        model = glm::scale(model, glm::vec3(12.0, 1.0, 12.0));
+
+        loc = glGetUniformLocation(program, "model");
+        glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(model));
+
+        glDrawArrays(GL_TRIANGLES, 0, 36);
+
+        // Object color.
+        loc = glGetUniformLocation(program, "objectColor");
+        glUniform3f(loc, 1.0, 0.1, 0.1);
+    }
 
     // draw nodes
+    glBindVertexArray(VAO_CASA);
     for (auto node : nodes) {
+        loc = glGetUniformLocation(program, "objectColor");
+        if (node.in_tree) {
+            glUniform3f(loc, 1.0, 0.2, 0.2);
+        } else {
+            glUniform3f(loc, 0.7, 0.14, 0.14);
+        }
+
         auto model = glm::mat4(1.0f);
         model = glm::translate(model, node.position);
         model = glm::scale(model, glm::vec3(0.5));
@@ -241,7 +271,72 @@ void keyboard(unsigned char key, int x, int y) {
     case 'n':
         runPrimStep();
         break;
+    case 'r':
+        initGraph();
+        break;
     }
+}
+
+std::vector<float> loadModel() {
+    std::string inputfile = "vertice.obj";
+    tinyobj::ObjReaderConfig reader_config;
+    reader_config.mtl_search_path = "./"; // Path to material files
+
+    tinyobj::ObjReader reader;
+
+    if (!reader.ParseFromFile(inputfile, reader_config)) {
+        if (!reader.Error().empty()) {
+            std::cerr << "TinyObjReader: " << reader.Error();
+        }
+        exit(1);
+    }
+
+    if (!reader.Warning().empty()) {
+        std::cout << "TinyObjReader: " << reader.Warning();
+    }
+
+    auto &attrib = reader.GetAttrib();
+    auto &shapes = reader.GetShapes();
+    auto &materials = reader.GetMaterials();
+
+    std::vector<float> vertices;
+
+    // Loop over shapes
+    for (size_t s = 0; s < shapes.size(); s++) {
+        // Loop over faces(polygon)
+        size_t index_offset = 0;
+        for (size_t f = 0; f < shapes[s].mesh.num_face_vertices.size(); f++) {
+            size_t fv = size_t(shapes[s].mesh.num_face_vertices[f]);
+
+            // Loop over vertices in the face.
+            for (size_t v = 0; v < fv; v++) {
+                // access to vertex
+                tinyobj::index_t idx = shapes[s].mesh.indices[index_offset + v];
+                tinyobj::real_t vx = attrib.vertices[3 * size_t(idx.vertex_index) + 0];
+                tinyobj::real_t vy = attrib.vertices[3 * size_t(idx.vertex_index) + 1];
+                tinyobj::real_t vz = attrib.vertices[3 * size_t(idx.vertex_index) + 2];
+
+                tinyobj::real_t nx = attrib.normals[3 * size_t(idx.normal_index) + 0];
+                tinyobj::real_t ny = attrib.normals[3 * size_t(idx.normal_index) + 1];
+                tinyobj::real_t nz = attrib.normals[3 * size_t(idx.normal_index) + 2];
+
+                vertices.push_back(vx);
+                vertices.push_back(vy);
+                vertices.push_back(vz);
+                vertices.push_back(nx);
+                vertices.push_back(ny);
+                vertices.push_back(nz);
+
+                // Optional: vertex colors
+                // tinyobj::real_t red   = attrib.colors[3*size_t(idx.vertex_index)+0];
+                // tinyobj::real_t green = attrib.colors[3*size_t(idx.vertex_index)+1];
+                // tinyobj::real_t blue  = attrib.colors[3*size_t(idx.vertex_index)+2];
+            }
+            index_offset += fv;
+        }
+    }
+
+    return vertices;
 }
 
 /**
@@ -251,34 +346,71 @@ void keyboard(unsigned char key, int x, int y) {
  */
 void initData() {
     // Set cube vertices.
-    float vertices[] = {
-        // coordinate      // normal
-        -0.5f, -0.5f, 0.5f,  0.0f,  0.0f,  1.0f,  0.5f,  -0.5f, 0.5f,  0.0f,  0.0f,  1.0f,  0.5f,
-        0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  -0.5f, -0.5f, 0.5f,  0.0f,  0.0f,  1.0f,  0.5f,  0.5f,
-        0.5f,  0.0f,  0.0f,  1.0f,  -0.5f, 0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  0.5f,  -0.5f, 0.5f,
-        1.0f,  0.0f,  0.0f,  0.5f,  -0.5f, -0.5f, 1.0f,  0.0f,  0.0f,  0.5f,  0.5f,  -0.5f, 1.0f,
-        0.0f,  0.0f,  0.5f,  -0.5f, 0.5f,  1.0f,  0.0f,  0.0f,  0.5f,  0.5f,  -0.5f, 1.0f,  0.0f,
-        0.0f,  0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f,  0.5f,  -0.5f, -0.5f, 0.0f,  0.0f,  -1.0f,
-        -0.5f, -0.5f, -0.5f, 0.0f,  0.0f,  -1.0f, -0.5f, 0.5f,  -0.5f, 0.0f,  0.0f,  -1.0f, 0.5f,
-        -0.5f, -0.5f, 0.0f,  0.0f,  -1.0f, -0.5f, 0.5f,  -0.5f, 0.0f,  0.0f,  -1.0f, 0.5f,  0.5f,
-        -0.5f, 0.0f,  0.0f,  -1.0f, -0.5f, -0.5f, -0.5f, -1.0f, 0.0f,  0.0f,  -0.5f, -0.5f, 0.5f,
-        -1.0f, 0.0f,  0.0f,  -0.5f, 0.5f,  0.5f,  -1.0f, 0.0f,  0.0f,  -0.5f, -0.5f, -0.5f, -1.0f,
-        0.0f,  0.0f,  -0.5f, 0.5f,  0.5f,  -1.0f, 0.0f,  0.0f,  -0.5f, 0.5f,  -0.5f, -1.0f, 0.0f,
-        0.0f,  -0.5f, 0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,
-        0.5f,  0.5f,  -0.5f, 0.0f,  1.0f,  0.0f,  -0.5f, 0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  0.5f,
-        0.5f,  -0.5f, 0.0f,  1.0f,  0.0f,  -0.5f, 0.5f,  -0.5f, 0.0f,  1.0f,  0.0f,  -0.5f, -0.5f,
-        0.5f,  0.0f,  -1.0f, 0.0f,  -0.5f, -0.5f, -0.5f, 0.0f,  -1.0f, 0.0f,  0.5f,  -0.5f, 0.5f,
-        0.0f,  -1.0f, 0.0f,  -0.5f, -0.5f, -0.5f, 0.0f,  -1.0f, 0.0f,  0.5f,  -0.5f, -0.5f, 0.0f,
-        -1.0f, 0.0f,  0.5f,  -0.5f, 0.5f,  0.0f,  -1.0f, 0.0f};
+    float cubo[] = {
+        // coordinate        // normal
+        -0.5f, -0.5f, 0.5f,  0.0f,  0.0f,  1.0f,  //
+        0.5f,  -0.5f, 0.5f,  0.0f,  0.0f,  1.0f,  //
+        0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  //
+        -0.5f, -0.5f, 0.5f,  0.0f,  0.0f,  1.0f,  //
+        0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  //
+        -0.5f, 0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  //
+        0.5f,  -0.5f, 0.5f,  1.0f,  0.0f,  0.0f,  //
+        0.5f,  -0.5f, -0.5f, 1.0f,  0.0f,  0.0f,  //
+        0.5f,  0.5f,  -0.5f, 1.0f,  0.0f,  0.0f,  //
+        0.5f,  -0.5f, 0.5f,  1.0f,  0.0f,  0.0f,  //
+        0.5f,  0.5f,  -0.5f, 1.0f,  0.0f,  0.0f,  //
+        0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f,  //
+        0.5f,  -0.5f, -0.5f, 0.0f,  0.0f,  -1.0f, //
+        -0.5f, -0.5f, -0.5f, 0.0f,  0.0f,  -1.0f, //
+        -0.5f, 0.5f,  -0.5f, 0.0f,  0.0f,  -1.0f, //
+        0.5f,  -0.5f, -0.5f, 0.0f,  0.0f,  -1.0f, //
+        -0.5f, 0.5f,  -0.5f, 0.0f,  0.0f,  -1.0f, //
+        0.5f,  0.5f,  -0.5f, 0.0f,  0.0f,  -1.0f, //
+        -0.5f, -0.5f, -0.5f, -1.0f, 0.0f,  0.0f,  //
+        -0.5f, -0.5f, 0.5f,  -1.0f, 0.0f,  0.0f,  //
+        -0.5f, 0.5f,  0.5f,  -1.0f, 0.0f,  0.0f,  //
+        -0.5f, -0.5f, -0.5f, -1.0f, 0.0f,  0.0f,  //
+        -0.5f, 0.5f,  0.5f,  -1.0f, 0.0f,  0.0f,  //
+        -0.5f, 0.5f,  -0.5f, -1.0f, 0.0f,  0.0f,  //
+        -0.5f, 0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  //
+        0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  //
+        0.5f,  0.5f,  -0.5f, 0.0f,  1.0f,  0.0f,  //
+        -0.5f, 0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  //
+        0.5f,  0.5f,  -0.5f, 0.0f,  1.0f,  0.0f,  //
+        -0.5f, 0.5f,  -0.5f, 0.0f,  1.0f,  0.0f,  //
+        -0.5f, -0.5f, 0.5f,  0.0f,  -1.0f, 0.0f,  //
+        -0.5f, -0.5f, -0.5f, 0.0f,  -1.0f, 0.0f,  //
+        0.5f,  -0.5f, 0.5f,  0.0f,  -1.0f, 0.0f,  //
+        -0.5f, -0.5f, -0.5f, 0.0f,  -1.0f, 0.0f,  //
+        0.5f,  -0.5f, -0.5f, 0.0f,  -1.0f, 0.0f,  //
+        0.5f,  -0.5f, 0.5f,  0.0f,  -1.0f, 0.0f,
+    };
+
+    std::vector<float> casinha = loadModel();
 
     // Vertex array.
-    glGenVertexArrays(1, &VAO);
-    glBindVertexArray(VAO);
+    glGenVertexArrays(1, &VAO_CUBO);
+    glBindVertexArray(VAO_CUBO);
 
     // Vertex buffer
-    glGenBuffers(1, &VBO);
-    glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+    glGenBuffers(1, &VBO_CASA);
+    glBindBuffer(GL_ARRAY_BUFFER, VBO_CASA);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(cubo), cubo, GL_STATIC_DRAW);
+
+    // Set attributes.
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void *)0);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void *)(3 * sizeof(float)));
+    glEnableVertexAttribArray(1);
+
+    // Vertex array.
+    glGenVertexArrays(1, &VAO_CASA);
+    glBindVertexArray(VAO_CASA);
+
+    // Vertex buffer
+    glGenBuffers(1, &VBO_CASA);
+    glBindBuffer(GL_ARRAY_BUFFER, VBO_CASA);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(float) * casinha.size(), casinha.data(), GL_STATIC_DRAW);
 
     // Set attributes.
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void *)0);
@@ -306,8 +438,8 @@ void initGraph() {
     for (int i = 0; i < 25; i++) {
         int x = i / 5;
         int y = i % 5;
-        float dx = 0.5 * ((float)rand() / (float)(RAND_MAX)-1.0);
-        float dy = 0.5 * ((float)rand() / (float)(RAND_MAX)-1.0);
+        float dx = 1.0 * ((float)rand() / (float)(RAND_MAX)-1.0);
+        float dy = 1.0 * ((float)rand() / (float)(RAND_MAX)-1.0);
         /* float dx = 0.0; */
         /* float dy = 0.0; */
 
@@ -315,14 +447,18 @@ void initGraph() {
         nodes.push_back(
             Node{.position = position, .connected_to = -1, .in_tree = false, .cost = 1.0f / 0.0f});
     }
+    not_included.clear();
     for (int v = 0; v < nodes.size(); v++) {
         not_included.push_back(v);
+    }
+    for (int i = 0; i < nodes.size() - 1; i++) {
+        int r = i + (rand() % (not_included.size() - i));
+        std::swap(not_included[i], not_included[r]);
     }
 }
 
 /// https://en.wikipedia.org/wiki/Prim%27s_algorithm#Description
 void runPrimStep() {
-
     if (!not_included.empty()) {
         float min_cost = 1.0f / 0.0f;
         int min = -1;
