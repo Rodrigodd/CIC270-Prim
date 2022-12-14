@@ -20,6 +20,6 @@ Para rodar, execute o comando `make` na pasta raiz.
 Requisitos:
 
 - Ter o Make instalado.
-- Descompactar o arquivo `libs.zip` na pasta raiz.
+- Descompactar o arquivo [`libs.zip`](https://github.com/Rodrigodd/CIC270-Prim/releases/download/v1.0/libs.zip) na pasta raiz.
 
 Para rodar, execute o comando `make` na pasta raiz.
