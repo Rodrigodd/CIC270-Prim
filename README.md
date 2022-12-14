@@ -2,7 +2,24 @@
 
 Visualização do algoritmo prim, para árvore geradora mínima.
 
-# Compilar
+# Compilando
 
-Descompacte o arquivo `libs.zip` no pasta raiz, e compile o programa com o
-command `make`. É necessário ter o Make instalado.
+## Linux
+
+Requisitos:
+
+- glut
+- GLEW
+- OpenGL 3.3
+- Make
+
+Para rodar, execute o comando `make` na pasta raiz.
+
+## Windows 
+
+Requisitos:
+
+- Ter o Make instalado.
+- Descompactar o arquivo `libs.zip` na pasta raiz.
+
+Para rodar, execute o comando `make` na pasta raiz.
