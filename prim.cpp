@@ -1,10 +1,3 @@
-/**
- * @file diffuse.cpp
- * Defines a diffuse reflection.
- *
- * @author Ricardo Dutra da Silva
- */
-
 #include "glm/ext/matrix_transform.hpp"
 #include "glm/ext/vector_float3.hpp"
 #include "glm/geometric.hpp"
@@ -32,26 +25,33 @@ int win_height = 600;
 /** Program variable. */
 int program;
 
-/** Vertex array object. */
+/// Modelo de uma casinha.
 unsigned int VAO_CASA;
-/** Vertex buffer object. */
 unsigned int VBO_CASA;
 
-/** Vertex array object. */
+/// Modelo de um cubo.
 unsigned int VAO_CUBO;
-/** Vertex buffer object. */
 unsigned int VBO_CUBO;
 
+/// Um nó no grafo
 struct Node {
+    /// A posição do grafo
     glm::vec3 position;
 
-    int connected_to;
+    /// Se esse nó já foi adicionado a árvore.
     bool in_tree;
+
+    /// O indice do nó na árvore mais próximo deste.
+    int connected_to;
+    /// A distância ao nó na árvore mais próximo deste.
     float cost;
 };
 
+/// Todos os nós do grafo.
 std::vector<Node> nodes;
+/// Os nós ainda não incluídos na árvore mínima.
 std::vector<int> not_included;
+/// O indice do último nó adicionado à àrvore mínima.
 int last_added = -1;
 
 glm::vec3 camera_pos = glm::vec3(0.0f, 15.0f, 10.0f);
@@ -192,10 +192,6 @@ void display() {
         glUniformMatrix4fv(loc, 1, GL_FALSE, glm::value_ptr(model));
 
         glDrawArrays(GL_TRIANGLES, 0, 36);
-
-        // Object color.
-        loc = glGetUniformLocation(program, "objectColor");
-        glUniform3f(loc, 1.0, 0.1, 0.1);
     }
 
     // draw nodes
@@ -326,11 +322,6 @@ std::vector<float> loadModel() {
                 vertices.push_back(nx);
                 vertices.push_back(ny);
                 vertices.push_back(nz);
-
-                // Optional: vertex colors
-                // tinyobj::real_t red   = attrib.colors[3*size_t(idx.vertex_index)+0];
-                // tinyobj::real_t green = attrib.colors[3*size_t(idx.vertex_index)+1];
-                // tinyobj::real_t blue  = attrib.colors[3*size_t(idx.vertex_index)+2];
             }
             index_offset += fv;
         }
@@ -433,6 +424,7 @@ void initShaders() {
     program = createShaderProgram(vertex_code, fragment_code);
 }
 
+/// Reseta o gráfo para o estado inicial.
 void initGraph() {
     nodes = std::vector<Node>();
     for (int i = 0; i < 25; i++) {
@@ -440,12 +432,10 @@ void initGraph() {
         int y = i % 5;
         float dx = 1.0 * ((float)rand() / (float)(RAND_MAX)-1.0);
         float dy = 1.0 * ((float)rand() / (float)(RAND_MAX)-1.0);
-        /* float dx = 0.0; */
-        /* float dy = 0.0; */
 
         auto position = glm::vec3((float)x * 2.0f - 4.0f + dx, 0.0f, -4.0f + 2.0f * (float)y + dy);
         nodes.push_back(
-            Node{.position = position, .connected_to = -1, .in_tree = false, .cost = 1.0f / 0.0f});
+            Node{.position = position, .in_tree = false, .connected_to = -1, .cost = 1.0f / 0.0f});
     }
     not_included.clear();
     for (int v = 0; v < nodes.size(); v++) {
@@ -457,7 +447,9 @@ void initGraph() {
     }
 }
 
-/// https://en.wikipedia.org/wiki/Prim%27s_algorithm#Description
+/// Roda uma iteração do algoritmo Prim.
+///
+/// beseado em: https://en.wikipedia.org/wiki/Prim%27s_algorithm#Description
 void runPrimStep() {
     if (!not_included.empty()) {
         float min_cost = 1.0f / 0.0f;
